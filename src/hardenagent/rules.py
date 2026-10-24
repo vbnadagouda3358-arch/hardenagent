@@ -91,10 +91,28 @@ RULES: Tuple[Rule, ...] = (
     Rule(
         "HA-SEC-009", "Hard-coded secret value", "medium", ("any",),
         _r(
-            r"(?i)\b(?:api[_-]?key|apikey|secret|token|passwd|password|auth[_-]?token|"
+            r"(?i)\b(?:api[_-]?key|apikey|secret|token|bot[_-]?token|gateway[_-]?token|passwd|password|auth[_-]?token|"
             r"access[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"'](?P<secret>[A-Za-z0-9_\-/+=.]{16,})[\"']"
         ),
         "Move the value to an environment variable or secrets manager and rotate it if it was real.",
+        secret=True,
+    ),
+    Rule(
+        "HA-SEC-010", "Groq API key in file", "high", ("any",),
+        _r(r"\bgsk_[A-Za-z0-9]{30,}\b"),
+        "Revoke the key in the Groq console and load the replacement from an environment variable.",
+        secret=True,
+    ),
+    Rule(
+        "HA-SEC-011", "Notion integration token in file", "high", ("any",),
+        _r(r"\b(?:ntn_[A-Za-z0-9]{30,}|secret_[A-Za-z0-9]{30,})\b"),
+        "Rotate the token in Notion's integration settings and load it from an environment variable.",
+        secret=True,
+    ),
+    Rule(
+        "HA-SEC-012", "Hugging Face token in file", "high", ("any",),
+        _r(r"\bhf_[A-Za-z0-9]{30,}\b"),
+        "Revoke the token in Hugging Face settings and load the replacement from the environment.",
         secret=True,
     ),
     # ------------------------------------------------------- network and access
@@ -106,6 +124,12 @@ RULES: Tuple[Rule, ...] = (
             r"|--host[= ]0\.0\.0\.0|listen\([^)]*[\"']0\.0\.0\.0[\"']"
         ),
         "Bind to 127.0.0.1 and put an authenticated reverse proxy or VPN in front of the agent.",
+    ),
+    Rule(
+        "HA-NET-002", "Gateway bind mode exposes it to the local network ('lan')", "high",
+        ("config", "code", "docker", "compose"),
+        _r(r"(?i)\bbind[\"']?\s*[:=]\s*[\"']?lan\b|--bind[= ]lan\b"),
+        "Use bind 'loopback' and reach the gateway through an SSH tunnel, VPN or HTTPS proxy with token auth.",
     ),
     Rule(
         "HA-AUTH-001", "Authentication is disabled", "high", ("config", "code"),
@@ -274,6 +298,22 @@ RULES: Tuple[Rule, ...] = (
         "HA-CODE-004", "Debug mode enabled", "medium", ("config", "code"),
         _r(r"(?i)\bdebug[\"']?\s*[:=]\s*[\"']?(?:true|1|yes)\b"),
         "Turn debug mode off in anything that is reachable by other people.",
+    ),
+    Rule(
+        "HA-CODE-005", "AppleScript or osascript built from variables", "high", ("code",),
+        _r(
+            r"(?i)osascript[^\n]*\bf[\"'][^\n]*\{[^}\n]+\}"
+            r"|osascript[^\n]*(?:\.format\(|%\s*\(|%s)"
+            r"|\bf[\"'][^\n]*\btell application\b[^\n]*\{[^}\n]+\}"
+        ),
+        "AppleScript can run shell commands. Validate every inserted value (allow-list app names, "
+        "force numbers with int()) and never insert raw model or voice text.",
+    ),
+    Rule(
+        "HA-CODE-006", "Command passed to subprocess as a variable (review)", "low", ("code",),
+        _r(r"\bsubprocess\.(?:run|Popen|call|check_output|check_call)\(\s*[A-Za-z_][\w.]*\s*[,)]"),
+        "Confirm this command is built only from fixed values. Never include model or voice text "
+        "without validation, and prefer an argument list.",
     ),
 )
 
