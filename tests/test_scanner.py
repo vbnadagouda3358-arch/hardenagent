@@ -238,3 +238,80 @@ def test_weak_credentials(tmp_path):
     result = scan(str(tmp_path))
     files = {f.file for f in result.findings if f.rule_id == "HA-AUTH-002"}
     assert files == {"b.yaml", "c.json"}
+
+
+def test_openclaw_style_gateway_bind_and_bot_token(tmp_path):
+    write(tmp_path / "openclaw.json",
+          '{\n  "gateway": {"bind": "lan", "port": 18789},\n'
+          '  "channels": {"telegram": {"bot_token": "' + "7391" + "20485" + ":" + "Ab3dE6gH9jK2mN5pQ8sT1vW4yZ7cF0hJ3kL" + '"}}\n}\n')
+    result = scan(str(tmp_path))
+    assert "HA-NET-002" in ids(result)
+    assert {"HA-SEC-006", "HA-SEC-009"} & ids(result)
+    write(tmp_path / "ok.json", '{"gateway": {"bind": "loopback"}}')
+    assert all(f.file != "ok.json" for f in scan(str(tmp_path)).findings)
+
+
+def test_new_provider_keys(tmp_path):
+    groq = "gs" + "k_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2"
+    notion = "nt" + "n_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    hf = "h" + "f_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5"
+    write(tmp_path / "a.py", f'A = "{groq}"\nB = "{notion}"\nC = "{hf}"\n')
+    result = scan(str(tmp_path))
+    assert {"HA-SEC-010", "HA-SEC-011", "HA-SEC-012"} <= ids(result)
+    for finding in result.findings:
+        assert groq not in finding.evidence and hf not in finding.evidence
+
+
+def test_osascript_built_from_variables(tmp_path):
+    write(tmp_path / "mac_tools.py",
+          "import subprocess\n"
+          "def quit_app(name):\n"
+          "    ok, out = _run([\"osascript\", \"-e\", f'tell application \"{name}\" to quit'])\n"
+          "def set_volume(level):\n"
+          "    ok, out = _run([\"osascript\", \"-e\", f\"set volume output volume {level}\"])\n"
+          "def fixed():\n"
+          "    ok, out = _run([\"osascript\", \"-e\", 'tell application \"Finder\" to activate'])\n")
+    lines = [f.line for f in scan(str(tmp_path)).findings if f.rule_id == "HA-CODE-005"]
+    assert lines == [3, 5]  # the fixed string on line 7 is not flagged
+
+
+def test_subprocess_variable_is_low_severity_review(tmp_path):
+    write(tmp_path / "a.py",
+          "import subprocess\n"
+          "subprocess.run(cmd)\n"
+          "subprocess.run(cmd, capture_output=True, text=True, timeout=20)\n"
+          "subprocess.run([\"open\", str(path)], check=False)\n"
+          "subprocess.run(cmd.split())\n")
+    findings = [f for f in scan(str(tmp_path)).findings if f.rule_id == "HA-CODE-006"]
+    assert [f.line for f in findings] == [2, 3]
+    assert all(f.severity == "low" for f in findings)
+
+
+def test_env_severity_depends_on_git_repo(tmp_path):
+    project = tmp_path / "proj"
+    write(project / ".env", "MODEL_API_KEY=r8Kd29xQvLmZpT4WnB7s\n")
+    env = [f for f in scan(str(project)).findings if f.rule_id == "HA-ENV-001"]
+    assert env and env[0].severity == "medium"
+    (project / ".git").mkdir()
+    env = [f for f in scan(str(project)).findings if f.rule_id == "HA-ENV-001"]
+    assert env and env[0].severity == "high"
+
+
+def test_veda_like_voice_assistant_project(tmp_path):
+    write(tmp_path / "notion_tools.py",
+          "import os\nHEADERS = {\n    \"Authorization\": f\"Bearer {os.environ['NOTION_TOKEN']}\",\n}\n")
+    write(tmp_path / "voice_agent.py", "import subprocess\n\ndef speak(cmd):\n    subprocess.run(cmd)\n")
+    write(tmp_path / ".env", "GROQ_API_KEY=" + "gs" + "k_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2\n")
+    write(tmp_path / ".gitignore", ".env\n")
+    result = scan(str(tmp_path))
+    assert "HA-SEC-010" not in ids(result)  # a key in a git-ignored .env is the right place
+    assert "HA-CODE-006" in ids(result)
+    assert all(f.file != "notion_tools.py" for f in result.findings)  # env-var token is fine
+
+
+def test_provider_keys_still_flagged_outside_real_env_files(tmp_path):
+    groq = "gs" + "k_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2"
+    write(tmp_path / ".env.example", f"GROQ_API_KEY={groq}\n")
+    write(tmp_path / "agent.py", f'KEY = "{groq}"\n')
+    flagged = {f.file for f in scan(str(tmp_path)).findings if f.rule_id == "HA-SEC-010"}
+    assert flagged == {".env.example", "agent.py"}
