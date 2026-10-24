@@ -17,6 +17,7 @@ FAKE_AWS = "AK" + "IA" + "7Q2M9X4TLRV8PBN3"
 def write_demo_project(base: str = "") -> str:
     root = Path(base or tempfile.mkdtemp(prefix="hardenagent-demo-"))
     root.mkdir(parents=True, exist_ok=True)
+    (root / ".git").mkdir(exist_ok=True)  # marks the demo as a git repo
 
     (root / "config.yaml").write_text(
         "gateway:\n"
