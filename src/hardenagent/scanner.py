@@ -177,6 +177,17 @@ def _gitignore_covers_env(file_path: Path, stop: Path) -> bool:
     return False
 
 
+def _in_git_repo(path: Path) -> bool:
+    current = path.parent
+    for _ in range(25):
+        if (current / ".git").exists():
+            return True
+        if current.parent == current:
+            break
+        current = current.parent
+    return False
+
+
 def _scan_env_file(path: Path, text: str, rel: str, root: Path) -> List[Finding]:
     name = path.name.lower()
     if any(hint in name for hint in ENV_TEMPLATE_HINTS):
@@ -190,10 +201,19 @@ def _scan_env_file(path: Path, text: str, rel: str, root: Path) -> List[Finding]
             break
     if secret_line and not _gitignore_covers_env(path, root):
         number, line, value = secret_line
+        if _in_git_repo(path):
+            severity = "high"
+            title = ".env file with secrets is not git-ignored"
+            fix = ("Add '.env' to .gitignore, rotate any secret that was committed, "
+                   "and ship a .env.example instead.")
+        else:
+            severity = "medium"
+            title = ".env file with secrets is not git-ignored (no git repo found yet)"
+            fix = ("Add '.env' to .gitignore now, before you run git init or upload this folder. "
+                   "If this folder was ever uploaded, rotate the secret.")
         found.append(Finding(
-            "HA-ENV-001", "high", ".env file with secrets is not git-ignored", rel, number,
-            line.strip().replace(value, mask(value))[:160],
-            "Add '.env' to .gitignore, rotate any secret that was committed, and ship a .env.example instead.",
+            "HA-ENV-001", severity, title, rel, number,
+            line.strip().replace(value, mask(value))[:160], fix,
         ))
     if secret_line and os.name != "nt":
         try:
@@ -352,6 +372,9 @@ def scan(path: str, ignore: Optional[Iterable[str]] = None) -> ScanResult:
         rel = _display(file_path, root)
         kinds = classify(file_path)
         batch = _scan_lines(text, rel, kinds, RULES)
+        if "env" in kinds and not any(h in file_path.name.lower() for h in ENV_TEMPLATE_HINTS):
+            # A real .env is where keys belong; the HA-ENV rules judge whether it is exposed.
+            batch = [f for f in batch if not f.rule_id.startswith("HA-SEC-")]
         if "config" in kinds:
             batch += _scan_multiline_wildcards(text, rel)
         if "env" in kinds:
