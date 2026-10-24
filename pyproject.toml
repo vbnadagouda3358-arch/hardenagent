@@ -9,7 +9,7 @@ description = "Local security auditor for self-hosted AI agent projects: configs
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Vinayaka Nadagouda" }]
 keywords = ["ai-agents", "security", "mcp", "audit", "llm", "devsecops"]
 classifiers = [
     "Programming Language :: Python :: 3",
