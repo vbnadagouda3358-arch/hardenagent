@@ -315,3 +315,81 @@ def test_provider_keys_still_flagged_outside_real_env_files(tmp_path):
     write(tmp_path / "agent.py", f'KEY = "{groq}"\n')
     flagged = {f.file for f in scan(str(tmp_path)).findings if f.rule_id == "HA-SEC-010"}
     assert flagged == {".env.example", "agent.py"}
+
+
+def test_unquoted_yaml_and_ini_secrets(tmp_path):
+    secret = "Zk93TqLm82VdXw7RpA1b2C3d"
+    write(tmp_path / "a.yaml", f"llm:\n  provider: acme\n  api_key: {secret}\n  openai_api_key: {secret}\n")
+    write(tmp_path / "b.ini", f"[auth]\naccess_token = {secret}\n")
+    write(tmp_path / "c.yaml", f"services:\n  app:\n    environment:\n      - DB_PASSWORD={secret}\n")
+    result = scan(str(tmp_path))
+    flagged = {(f.file, f.line) for f in result.findings if f.rule_id == "HA-SEC-009"}
+    assert flagged == {("a.yaml", 3), ("a.yaml", 4), ("b.ini", 2), ("c.yaml", 4)}
+    for finding in result.findings:
+        assert secret not in finding.evidence
+
+
+def test_unquoted_secret_rule_ignores_references_and_placeholders(tmp_path):
+    write(tmp_path / "ok.yaml",
+          "a:\n"
+          "  api_key: ${API_KEY}\n"
+          "  token: ${{ secrets.GITHUB_TOKEN }}\n"
+          "  api_key: your_api_key_goes_here_12345\n"
+          "  password: \"\"\n"
+          "  api_key_file: /etc/secrets/openai_api_key_file\n"
+          "  token: short\n"
+          "  token_url: https://auth.example.net/oauth/token\n"
+          "  public_key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\n")
+    assert scan(str(tmp_path)).findings == []
+
+
+def test_quoted_secret_with_access_token_key(tmp_path):
+    write(tmp_path / "a.json", '{"access_token": "Zk93TqLm82VdXw7RpA1b2C3d"}\n')
+    assert "HA-SEC-009" in ids(scan(str(tmp_path)))
+
+
+def test_unquoted_secret_in_a_real_env_file_is_left_to_env_rules(tmp_path):
+    write(tmp_path / ".env", "SERVICE_TOKEN=Zk93TqLm82VdXw7RpA1b2C3d\n")
+    write(tmp_path / ".gitignore", ".env\n")
+    os.chmod(tmp_path / ".env", 0o600)
+    assert scan(str(tmp_path)).findings == []
+
+
+def test_exposed_debuggers(tmp_path):
+    write(tmp_path / "start.sh",
+          "node --inspect=0.0.0.0:9229 server.js\n"
+          "node --inspect-brk=0.0.0.0:9230 server.js\n"
+          "python -m debugpy --listen 0.0.0.0:5678 app.py\n"
+          "node --inspect=127.0.0.1:9229 server.js\n"
+          "node --inspect server.js\n"
+          "node --inspect=[::1]:9229 server.js\n")
+    write(tmp_path / "dbg.py", "import debugpy\ndebugpy.listen((\"0.0.0.0\", 5678))\n")
+    write(tmp_path / "Dockerfile", "CMD java -agentlib:jdwp=transport=dt_socket,server=y,address=*:5005 -jar app.jar\n")
+    result = scan(str(tmp_path))
+    flagged = sorted((f.file, f.line) for f in result.findings if f.rule_id == "HA-NET-003")
+    assert flagged == [("Dockerfile", 1), ("dbg.py", 2), ("start.sh", 1), ("start.sh", 2), ("start.sh", 3)]
+    assert all(f.severity == "critical" for f in result.findings if f.rule_id == "HA-NET-003")
+
+
+def test_deno_all_permissions(tmp_path):
+    write(tmp_path / "run.sh",
+          "deno run -A main.ts\n"
+          "deno run --allow-all main.ts\n"
+          "deno run --allow-net=api.example.com main.ts\n")
+    write(tmp_path / "script.ts", "#!/usr/bin/env -S deno run -A\nconsole.log('hi');\n")
+    result = scan(str(tmp_path))
+    flagged = sorted((f.file, f.line) for f in result.findings if f.rule_id == "HA-SBX-007")
+    assert flagged == [("run.sh", 1), ("run.sh", 2), ("script.ts", 1)]
+
+
+def test_debug_and_console_routes(tmp_path):
+    write(tmp_path / "server.js",
+          "app.get('/debug', handler);\n"
+          "router.use(\"/__debug__\", dbg);\n"
+          "app.get('/debugging-guide', page);\n"
+          "app.get('/api/users', users);\n")
+    write(tmp_path / "app.py", "@app.route(\"/console\")\ndef c():\n    pass\n")
+    write(tmp_path / "main.ts", "if (url.pathname === \"/debug\") { return dump(); }\n")
+    result = scan(str(tmp_path))
+    flagged = sorted((f.file, f.line) for f in result.findings if f.rule_id == "HA-CODE-007")
+    assert flagged == [("app.py", 1), ("main.ts", 1), ("server.js", 1), ("server.js", 2)]
