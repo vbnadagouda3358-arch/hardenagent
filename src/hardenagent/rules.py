@@ -91,8 +91,19 @@ RULES: Tuple[Rule, ...] = (
     Rule(
         "HA-SEC-009", "Hard-coded secret value", "medium", ("any",),
         _r(
-            r"(?i)\b(?:api[_-]?key|apikey|secret|token|bot[_-]?token|gateway[_-]?token|passwd|password|auth[_-]?token|"
+            r"(?i)\b(?:api[_-]?key|apikey|secret|token|bot[_-]?token|gateway[_-]?token|access[_-]?token|"
+            r"refresh[_-]?token|passwd|password|auth[_-]?token|"
             r"access[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"'](?P<secret>[A-Za-z0-9_\-/+=.]{16,})[\"']"
+        ),
+        "Move the value to an environment variable or secrets manager and rotate it if it was real.",
+        secret=True,
+    ),
+    Rule(
+        "HA-SEC-009", "Hard-coded secret value", "medium", ("config",),
+        _r(
+            r"(?i)^\s*(?:export\s+)?(?:-\s*)?[\"']?[A-Za-z0-9_.\-]*"
+            r"(?:api[_-]?key|apikey|secret|token|passwd|password|access[_-]?key|client[_-]?secret)"
+            r"[\"']?\s*[:=]\s*(?P<secret>[A-Za-z0-9_\-/+=.]{16,})\s*(?:#.*)?$"
         ),
         "Move the value to an environment variable or secrets manager and rotate it if it was real.",
         secret=True,
@@ -130,6 +141,17 @@ RULES: Tuple[Rule, ...] = (
         ("config", "code", "docker", "compose"),
         _r(r"(?i)\bbind[\"']?\s*[:=]\s*[\"']?lan\b|--bind[= ]lan\b"),
         "Use bind 'loopback' and reach the gateway through an SSH tunnel, VPN or HTTPS proxy with token auth.",
+    ),
+    Rule(
+        "HA-NET-003", "Debugger or inspector is open to the network", "critical",
+        ("config", "code", "docker", "compose"),
+        _r(
+            r"(?i)--inspect(?:-brk|-wait)?[= ](?:0\.0\.0\.0|\[::\])(?::\d+)?"
+            r"|debugpy\.listen\(\s*\(?\s*[\"']0\.0\.0\.0[\"']"
+            r"|--listen[= ]0\.0\.0\.0:\d+"
+            r"|jdwp[^\n]*address=(?:\*|0\.0\.0\.0):\d+"
+        ),
+        "Bind debuggers to 127.0.0.1 only. An open inspector lets anyone on the network run code.",
     ),
     Rule(
         "HA-AUTH-001", "Authentication is disabled", "high", ("config", "code"),
@@ -193,6 +215,12 @@ RULES: Tuple[Rule, ...] = (
             r"\s*[:=]\s*[\"']?(?:false|none|off|disabled|no)\b"
         ),
         "Run tools inside a sandbox (container, VM or restricted user) and keep it enabled.",
+    ),
+    Rule(
+        "HA-SBX-007", "Deno runs with all permissions", "medium",
+        ("config", "code", "docker", "compose"),
+        _r(r"\bdeno\s+(?:run|test)\b[^\n]*(?:\s-A\b|\s--allow-all\b)"),
+        "Grant only the permissions the program needs (for example --allow-net=api.example.com).",
     ),
     Rule(
         "HA-SBX-002", "Container runs in privileged mode", "critical",
@@ -314,6 +342,15 @@ RULES: Tuple[Rule, ...] = (
         _r(r"\bsubprocess\.(?:run|Popen|call|check_output|check_call)\(\s*[A-Za-z_][\w.]*\s*[,)]"),
         "Confirm this command is built only from fixed values. Never include model or voice text "
         "without validation, and prefer an argument list.",
+    ),
+    Rule(
+        "HA-CODE-007", "Debug or console route in code", "medium", ("code",),
+        _r(
+            r"(?i)(?:\.(?:get|post|put|patch|delete|all|use|route|add_url_rule)\s*\(|"
+            r"@\w+\.(?:get|post|put|route)\s*\()\s*[\"'`]/(?:_{0,2}debug_{0,2}|console|pprof)[/\"'`?]"
+            r"|pathname\s*===?\s*[\"'`]/(?:_{0,2}debug_{0,2}|console|pprof)[\"'`]"
+        ),
+        "Remove debug routes from production builds, or require authentication and bind to localhost.",
     ),
 )
 
