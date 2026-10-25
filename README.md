@@ -56,12 +56,12 @@ Secret values are masked in every report.
 
 | Area | Examples |
 |---|---|
-| Secrets | Anthropic, OpenAI-style, AWS, GitHub, Slack, Telegram and Google keys, private keys, hard-coded passwords |
+| Secrets | Anthropic, OpenAI-style, Groq, Notion, Hugging Face, AWS, GitHub, Slack, Telegram and Google keys, private keys, hard-coded passwords and tokens in code, YAML, JSON and INI files |
 | Network and auth | Binding to `0.0.0.0` or a gateway bind mode of `lan`, authentication switched off, weak default credentials, wildcard CORS, and a combined **critical** finding when an unauthenticated service is exposed |
-| Agent permissions | Auto-approve or "skip permissions" flags, disabled sandbox, wildcard tool allow-lists, shell or code-execution tools, running as root |
+| Agent permissions | Auto-approve or "skip permissions" flags, disabled sandbox, `deno run -A`, wildcard tool allow-lists, shell or code-execution tools, running as root |
 | MCP servers | Unpinned `npx` or `uvx` packages, plain `http` servers, shell-launched servers, filesystem servers allowed on `/` or the home folder, literal tokens in `env` or `headers` |
 | Containers | Privileged mode, Docker socket mounted, host network, host root or `~/.ssh` mounted, ports published on all interfaces, `USER root`, remote scripts piped into a shell |
-| Code | `eval` and `exec`, `shell=True`, `os.system`, unsafe pickle or yaml loading, disabled TLS verification, debug mode |
+| Code | `eval` and `exec`, `shell=True`, `os.system`, unsafe pickle or yaml loading, disabled TLS verification, debug mode, debug or console routes, debugger ports open to the network (Node, Deno, Python, Java) |
 | Hygiene | `.env` files with secrets that are not git-ignored or are readable by other users |
 
 List every rule with `hardenagent rules`.
